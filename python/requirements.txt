@@ -1,0 +1,17 @@
+# AttendX Python Services
+# Install: pip install -r requirements.txt
+
+# ZKTeco/Granding SDK pull (port 4370)
+pyzk==0.9
+
+# MySQL connector
+mysql-connector-python==8.3.0
+
+# Windows service support (optional, for NSSM-less service installation)
+pywin32==306; sys_platform == "win32"
+
+# Logging rotation (stdlib, no install needed)
+# logging.handlers is built-in
+
+# Environment variable loading
+python-dotenv==1.0.1
