@@ -284,33 +284,54 @@ class AnalyticsModel
         $monthStart = date('Y-m-01', strtotime($date));
         $monthEnd   = $date;
 
-        $attendance = $this->getAttendanceSummaryByPeriod($monthStart, $monthEnd);
+        // Monthly attendance rate
+        $monthly = $this->getAttendanceSummaryByPeriod($monthStart, $monthEnd);
+
+        // Today-specific punch counts (from processed records for $date)
+        $todayStmt = $this->db->prepare("
+            SELECT
+                SUM(status = 'present')                 AS present_today,
+                SUM(status = 'absent')                  AS absent_today,
+                SUM(status = 'late')                    AS late_today,
+                COUNT(*)                                AS total_today
+            FROM attendance_records
+            WHERE attendance_date = :date
+        ");
+        $todayStmt->execute([':date' => $date]);
+        $today = $todayStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
         $workforce  = $this->getWorkforceSummary();
 
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) AS pending_leaves
-            FROM leave_applications
-            WHERE status = 'pending'
-        ");
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) AS pending_leaves FROM leave_applications WHERE status = 'pending'"
+        );
         $stmt->execute();
         $leaves = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) AS offline_devices
-            FROM devices WHERE status = 'offline'
-        ");
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) AS offline_devices FROM devices WHERE status = 'offline' AND is_active = 1"
+        );
         $stmt->execute();
         $devices = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // Attendance rate: if today records exist use today, otherwise use monthly
+        $totalToday = (int)($today['total_today'] ?? 0);
+        if ($totalToday > 0) {
+            $presentAndLate = (int)($today['present_today'] ?? 0) + (int)($today['late_today'] ?? 0);
+            $attendanceRate = round($presentAndLate / $totalToday * 100, 2);
+        } else {
+            $attendanceRate = $monthly['attendance_rate'] ?? 0;
+        }
+
         return [
-            'attendance_rate'   => $attendance['attendance_rate'] ?? 0,
-            'present_today'     => $attendance['present'] ?? 0,
-            'absent_today'      => $attendance['absent'] ?? 0,
-            'late_today'        => $attendance['late'] ?? 0,
-            'total_employees'   => $workforce['total_employees'] ?? 0,
-            'active_employees'  => $workforce['active'] ?? 0,
-            'pending_leaves'    => $leaves['pending_leaves'] ?? 0,
-            'offline_devices'   => $devices['offline_devices'] ?? 0,
+            'attendance_rate'  => $attendanceRate,
+            'present_today'    => (int)($today['present_today'] ?? 0),
+            'absent_today'     => (int)($today['absent_today']  ?? 0),
+            'late_today'       => (int)($today['late_today']    ?? 0),
+            'total_employees'  => (int)($workforce['total_employees'] ?? 0),
+            'active_employees' => (int)($workforce['active']          ?? 0),
+            'pending_leaves'   => (int)($leaves['pending_leaves']     ?? 0),
+            'offline_devices'  => (int)($devices['offline_devices']   ?? 0),
         ];
     }
 }

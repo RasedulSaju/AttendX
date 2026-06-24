@@ -140,7 +140,16 @@ FCM_SERVER_KEY=
 ENV;
 
         file_put_contents(BASE_PATH . '/.env', $envContent);
-        @chmod(BASE_PATH . '/.env', 0640);
+        if (stripos(PHP_OS_FAMILY, 'Windows') === false) {
+            @chmod(BASE_PATH . '/.env', 0640);
+        }
+
+        // Persist app/company name into system_settings
+        try {
+            $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='app.name'")->execute([$appName]);
+            $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='company.name'")->execute([$appName]);
+            $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='mail.from_name'")->execute([$appName]);
+        } catch (Throwable) {}
 
         foreach (['logs','backups','uploads','uploads/avatars','uploads/documents','uploads/leave_docs','cache'] as $dir) {
             $path = BASE_PATH . '/storage/' . $dir;
@@ -238,7 +247,7 @@ input:focus,select:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 3px 
     <?php elseif ($step === 3): ?>
       <h3 style="margin-top:0">Application Settings</h3>
       <form method="POST" action="setup.php?step=3">
-        <label>Application Name</label><input type="text" name="app_name" value="AttendX" required>
+        <label>Company / Application Name</label><input type="text" name="app_name" placeholder="e.g. Acme Corp HR" value="AttendX" required>
         <label>Application URL</label><input type="text" name="app_url" value="http://<?= $_SERVER['HTTP_HOST'] ?? 'localhost' ?>" required>
         <label>Timezone</label><input type="text" name="app_tz" value="Asia/Dhaka" required>
         <label>ADMS Push Port (device → server)</label><input type="text" name="adms_port" value="8080" required>

@@ -283,13 +283,10 @@ class MailService
 
     public static function sendLeaveStatusUpdate(int $employeeId, string $status, array $leaveApp): bool
     {
-        $db  = Database::getInstance()->getConnection();
-        $emp = $db->prepare("SELECT full_name, email FROM employees WHERE id=?")->execute([$employeeId]);
-        $emp = $db->prepare("SELECT full_name, email FROM employees WHERE id=?")->execute([$employeeId]) ? null : null;
-
+        $db   = Database::getInstance()->getConnection();
         $stmt = $db->prepare("SELECT full_name, email FROM employees WHERE id=?");
         $stmt->execute([$employeeId]);
-        $emp = $stmt->fetch(PDO::FETCH_ASSOC);
+        $emp  = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$emp || empty($emp['email'])) {
             return false;
@@ -318,7 +315,7 @@ class MailService
                 <p>Your leave application for <strong>{{leave_type}}</strong> from <strong>{{from_date}}</strong>
                    to <strong>{{to_date}}</strong> ({{total_days}} day(s)) has been
                    <strong>{{status}}</strong>.</p>
-                <p>Please log in to AttendX for details.</p>
+                <p>Please log in to the HR portal for details.</p>
                 <p>Regards,<br>HR Team</p>',
             default        => '<p>{{body}}</p>',
         };
@@ -332,6 +329,18 @@ class MailService
 
     private static function wrapTemplate(string $title, string $content): string
     {
+        // Attempt to read app name from system_settings; fall back to env/config
+        $appName = 'AttendX';
+        try {
+            $db   = Database::getInstance()->getConnection();
+            $row  = $db->query("SELECT value FROM system_settings WHERE `key`='app.name' LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
+            if (!empty($row['value'])) {
+                $appName = htmlspecialchars($row['value']);
+            }
+        } catch (\Throwable) {
+            $appName = config('app.name', 'AttendX');
+        }
+
         return <<<HTML
 <!DOCTYPE html>
 <html>
@@ -339,7 +348,7 @@ class MailService
 <body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:20px">
   <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;padding:32px;border:1px solid #eee">
     <div style="border-bottom:2px solid #6366f1;padding-bottom:16px;margin-bottom:24px">
-      <h2 style="margin:0;color:#6366f1">AttendX</h2>
+      <h2 style="margin:0;color:#6366f1">{$appName}</h2>
     </div>
     {$content}
   </div>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="<?= \App\Core\CSRF::generate() ?>">
-  <title><?= htmlspecialchars($title ?? 'AttendX') ?> – AttendX</title>
+  <title><?= htmlspecialchars($title ?? 'Dashboard') ?> – <?= htmlspecialchars($_appName ?? 'AttendX') ?></title>
 
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -162,13 +162,25 @@
 <!-- ── Sidebar ──────────────────────────────────────────────────────────────── -->
 <nav id="sidebar">
   <div class="brand">
-    <div class="brand-logo">Attend<span>X</span></div>
+    <div class="brand-logo"><?= htmlspecialchars($_appName) ?></div>
     <div style="font-size:.72rem;color:var(--text-muted);margin-top:2px">Enterprise Attendance System</div>
   </div>
 
   <?php
     $currentPath = \App\Core\Request::path();
     $user        = \App\Core\Auth::user();
+
+  // Dynamic app name from system_settings, cached per request
+  static $_appName = null;
+  if ($_appName === null) {
+      try {
+          $__db = \App\Core\Database::getInstance()->getConnection();
+          $__r  = $__db->query("SELECT value FROM system_settings WHERE `key`='app.name' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+          $_appName = !empty($__r['value']) ? $__r['value'] : config('app.name', 'AttendX');
+      } catch (\Throwable) {
+          $_appName = config('app.name', 'AttendX');
+      }
+  }
     $active      = fn(string $path) => str_starts_with($currentPath, $path) ? 'active' : '';
     $can         = fn(string $perm) => \App\Core\Auth::can($perm);
   ?>
@@ -322,7 +334,7 @@
 
   <!-- Footer -->
   <footer class="text-center text-secondary py-3 border-top border-secondary" style="font-size:.75rem">
-    AttendX &copy; <?= date('Y') ?> &nbsp;|&nbsp;
+    <?= htmlspecialchars($_appName ?? 'AttendX') ?> &copy; <?= date('Y') ?> &nbsp;|&nbsp;
     v1.0.0 &nbsp;|&nbsp;
     <?php if (defined('APP_START')): ?>
     <?= round((microtime(true) - APP_START) * 1000) ?>ms

@@ -25,6 +25,29 @@ from typing import Optional
 import mysql.connector
 from mysql.connector import Error as MySQLError
 
+# ─── Load .env from project root (makes standalone deployment easier) ──────────
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ENV_FILE = os.path.join(_BASE_DIR, '.env')
+
+try:
+    from dotenv import load_dotenv
+    if os.path.exists(_ENV_FILE):
+        load_dotenv(_ENV_FILE)
+except ImportError:
+    # python-dotenv not installed — fall back to manual parse
+    if os.path.exists(_ENV_FILE):
+        with open(_ENV_FILE) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line or _line.startswith('#') or '=' not in _line:
+                    continue
+                _k, _v = _line.split('=', 1)
+                _k = _k.strip()
+                _v = _v.strip().strip('"').strip("'")
+                if _k not in os.environ:
+                    os.environ[_k] = _v
+
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
 DB_CONFIG = {

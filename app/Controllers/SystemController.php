@@ -314,8 +314,16 @@ class SystemController extends Controller
         }
 
         try {
-            $mailer = new \App\Services\MailService();
-            $mailer->sendRaw($to, 'AttendX Test Email', '<p>Email configuration is working correctly.</p>');
+            $appName = $this->getSettingValue('app.name', config('app.name', 'AttendX'));
+            $mailer  = new \App\Services\MailService();
+            $mailer->to($to)
+                   ->subject("{$appName} – SMTP Test Email")
+                   ->html(
+                       "<p>Hello,</p>"
+                       . "<p>This is a test email confirming that SMTP is configured correctly for <strong>{$appName}</strong>.</p>"
+                       . "<p>Sent at: " . date('Y-m-d H:i:s') . "</p>"
+                   )
+                   ->send();
             Response::json(['success' => true, 'message' => 'Test email sent to ' . $to]);
         } catch (\Exception $e) {
             Response::json(['success' => false, 'message' => $e->getMessage()], 500);
@@ -323,6 +331,15 @@ class SystemController extends Controller
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    private function getSettingValue(string $key, mixed $default = null): mixed
+    {
+        $db   = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT `value` FROM system_settings WHERE `key` = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $val  = $stmt->fetchColumn();
+        return ($val !== false && $val !== '') ? $val : $default;
+    }
 
     private function getAllSettings(): array
     {

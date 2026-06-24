@@ -42,33 +42,19 @@ abstract class Controller
 
     protected function view(string $view, array $data = []): void
     {
-        // Convert dot notation: 'payroll.index' → 'payroll/index'
+        // Convert dot notation to path separator
         $view = str_replace('.', '/', $view);
-        $path = base_path("app/Views/{$view}.php");
 
-        if (!file_exists($path)) {
-            Response::abort(500, "View not found: {$view}");
-        }
+        // Pass route to views; auth/flash/csrf accessed directly by static
+        // methods inside the layout (Auth::user(), CSRF::generate(), etc.)
+        // Flash is NOT pre-consumed here — layouts/main.php reads and
+        // unsets $_SESSION['_flash'] directly so messages are not lost.
+        $data['_route'] = Request::path();
 
-        // Inject common view data
-        $data['_auth']       = Auth::user();
-        $data['_flash']      = [
-            'success' => Session::getFlash('success'),
-            'error'   => Session::getFlash('error'),
-            'info'    => Session::getFlash('info'),
-            'warning' => Session::getFlash('warning'),
-        ];
-        $data['_csrf']       = CSRF::generate();
-        $data['_route']      = Request::path();
-
-        extract($data, EXTR_SKIP);
-
-        // Simple layout support via $this->layout()
-        ob_start();
-        include $path;
-        $content = ob_get_clean();
-
-        echo $content;
+        // View::make() binds $this to a View instance so that
+        // $this->layout(), $this->start(), $this->stop(), $this->section()
+        // all work correctly inside view templates.
+        echo \App\Core\View::make($view, $data);
     }
 
     // ─── Validation ───────────────────────────────────────────────────────────
@@ -164,14 +150,5 @@ abstract class Controller
         Response::redirect($_SERVER['HTTP_REFERER'] ?? $fallback);
     }
 
-    // ─── View Layout Support (called from views) ───────────────────────────────
 
-    // Views use $this->layout() via a simple include-based template system.
-    // They call: $this->layout('layouts/main', ['title' => '...'])
-    // This is a stub — actual layout rendering is handled in view files.
-    protected function layout(string $layout, array $data = []): void
-    {
-        // Implemented in view layer — this stub prevents fatal errors
-        // if views are called in a non-layout context.
-    }
 }

@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 declare(strict_types=1);
 
@@ -35,7 +34,8 @@ function prompt(string $label, string $default = ''): string
 function promptSecret(string $label): string
 {
     echo "{$label}: ";
-    if (stripos(PHP_OS, 'WIN') === 0) {
+    // Windows does not support stty; just read plaintext
+    if (stripos(PHP_OS_FAMILY, 'Windows') !== false || stripos(PHP_OS, 'WIN') === 0) {
         return trim(fgets(STDIN));
     }
     system('stty -echo');
@@ -83,7 +83,14 @@ if (file_exists(BASE_PATH . '/.env')) {
     }
 }
 
-// ─── Step 3: Database Configuration ───────────────────────────────────────────
+// ─── Step 3: Application Configuration ────────────────────────────────────────
+
+echo "\n--- Application Configuration ---\n";
+$appName = prompt('Company / Application Name', 'AttendX');
+$appUrl  = prompt('Application URL', 'http://localhost');
+$appTz   = prompt('Timezone', 'Asia/Dhaka');
+
+// ─── Step 4: Database Configuration ───────────────────────────────────────────
 
 echo "\n--- Database Configuration ---\n";
 $dbHost = prompt('Database Host', '127.0.0.1');
@@ -106,10 +113,9 @@ try {
 // Create database if not exists
 $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 out("Database '{$dbName}' ready.", 'ok');
-
 $pdo->exec("USE `{$dbName}`");
 
-// ─── Step 4: Run install.sql ──────────────────────────────────────────────────
+// ─── Step 5: Run install.sql ──────────────────────────────────────────────────
 
 echo "\n--- Installing Schema ---\n";
 $sqlFile = BASE_PATH . '/database/install.sql';
@@ -121,10 +127,10 @@ if (!file_exists($sqlFile)) {
 out('Running database/install.sql...');
 $sql = file_get_contents($sqlFile);
 
-// Split on semicolons outside of strings (basic split — works for this schema)
+// Split statements on newline-terminated semicolons
 $statements = array_filter(array_map('trim', explode(";\n", $sql)));
-$executed = 0;
-$errors   = 0;
+$executed   = 0;
+$errors     = 0;
 
 foreach ($statements as $stmt) {
     $stmt = trim($stmt);
@@ -133,32 +139,36 @@ foreach ($statements as $stmt) {
         $pdo->exec($stmt);
         $executed++;
     } catch (PDOException $e) {
-        // Ignore "table already exists" type errors on re-run
-        if (!str_contains($e->getMessage(), 'already exists') && !str_contains($e->getMessage(), 'Duplicate')) {
-            out('SQL Error: ' . substr($e->getMessage(), 0, 150), 'warn');
+        if (!str_contains($e->getMessage(), 'already exists') &&
+            !str_contains($e->getMessage(), 'Duplicate entry')) {
+            out('SQL Warning: ' . substr($e->getMessage(), 0, 150), 'warn');
             $errors++;
         }
     }
 }
 out("Executed {$executed} statements ({$errors} warnings).", $errors > 0 ? 'warn' : 'ok');
 
-// ─── Step 5: Application Configuration ────────────────────────────────────────
+// Persist company name into system_settings now that schema is loaded
+try {
+    $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='company.name'")->execute([$appName]);
+    $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='app.name'")->execute([$appName]);
+    $pdo->prepare("UPDATE system_settings SET `value`=? WHERE `key`='mail.from_name'")->execute([$appName]);
+} catch (PDOException $e) {
+    out('Could not write company name to settings: ' . $e->getMessage(), 'warn');
+}
 
-echo "\n--- Application Configuration ---\n";
-$appUrl  = prompt('Application URL', 'http://localhost');
-$appName = prompt('Application Name', 'AttendX');
-$appTz   = prompt('Timezone', 'Asia/Dhaka');
+// ─── Step 6: Device Configuration ─────────────────────────────────────────────
 
 echo "\n--- Device Configuration ---\n";
-$admsPort = prompt('ADMS Push Port (primary)', '8080');
-$sdkPort  = prompt('SDK Pull Port', '4370');
+$admsPort = prompt('ADMS Push Port (device → server)', '8080');
+$sdkPort  = prompt('SDK Pull Port  (server → device)', '4370');
 
-// ─── Step 6: Generate Keys ─────────────────────────────────────────────────────
+// ─── Step 7: Generate Keys ─────────────────────────────────────────────────────
 
-$appKey  = bin2hex(random_bytes(16));
-$jwtKey  = bin2hex(random_bytes(32));
+$appKey = bin2hex(random_bytes(16));
+$jwtKey = bin2hex(random_bytes(32));
 
-// ─── Step 7: Write .env ────────────────────────────────────────────────────────
+// ─── Step 8: Write .env ────────────────────────────────────────────────────────
 
 $envContent = <<<ENV
 APP_NAME={$appName}
@@ -207,13 +217,19 @@ FCM_SERVER_KEY=
 ENV;
 
 file_put_contents(BASE_PATH . '/.env', $envContent);
-chmod(BASE_PATH . '/.env', 0640);
+// chmod is a no-op on Windows — suppress warning
+if (stripos(PHP_OS_FAMILY, 'Windows') === false) {
+    @chmod(BASE_PATH . '/.env', 0640);
+}
 out('.env file created.', 'ok');
 
-// ─── Step 8: Storage Directories ──────────────────────────────────────────────
+// ─── Step 9: Storage Directories ──────────────────────────────────────────────
 
 echo "\n--- Storage Setup ---\n";
-$dirs = ['logs', 'backups', 'uploads', 'uploads/avatars', 'uploads/documents', 'uploads/leave_docs', 'cache'];
+$dirs = [
+    'logs', 'backups', 'cache',
+    'uploads', 'uploads/avatars', 'uploads/documents', 'uploads/leave_docs',
+];
 foreach ($dirs as $dir) {
     $path = BASE_PATH . '/storage/' . $dir;
     if (!is_dir($path)) {
@@ -222,27 +238,29 @@ foreach ($dirs as $dir) {
 }
 out('Storage directories created.', 'ok');
 
-// ─── Step 9: Python Dependencies ──────────────────────────────────────────────
+// ─── Step 10: Python hint ─────────────────────────────────────────────────────
 
 echo "\n--- Python Services ---\n";
-out('Python services (ADMS listener, SDK pull) are NOT auto-installed.');
-out('Run manually: pip install -r python/requirements.txt', 'warn');
+out('Install Python dependencies: pip install -r python/requirements.txt', 'warn');
+out('Then start: python python/adms_listener.py', 'warn');
+out('And:        python python/sdk_pull.py', 'warn');
 
-// ─── Done ──────────────────────────────────────────────────────────────────────
+// ─── Done ─────────────────────────────────────────────────────────────────────
 
 echo "\n";
 echo "==================================================\n";
 echo "   Installation Complete!\n";
 echo "==================================================\n\n";
-out('Application URL : ' . $appUrl, 'ok');
+out("Application Name: {$appName}", 'ok');
+out("Application URL : {$appUrl}", 'ok');
 out('Admin Email     : admin@attendx.com', 'ok');
 out('Admin Password  : Admin@1234', 'ok');
 echo "\n";
 out('CHANGE THE ADMIN PASSWORD IMMEDIATELY AFTER FIRST LOGIN.', 'warn');
 echo "\n";
-out('Next steps:');
+echo "Next steps:\n";
 echo "  1. Point your web server document root to: " . BASE_PATH . "/public\n";
-echo "  2. Install Python dependencies: pip install -r python/requirements.txt\n";
-echo "  3. Start ADMS listener: python python/adms_listener.py\n";
-echo "  4. Start SDK pull service: python python/sdk_pull.py\n";
+echo "  2. pip install -r python/requirements.txt\n";
+echo "  3. python python/adms_listener.py\n";
+echo "  4. python python/sdk_pull.py\n";
 echo "  5. Visit {$appUrl} and log in.\n\n";
